@@ -1,0 +1,85 @@
+name: Train and Upload to Hugging Face
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  train-and-upload:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Ensure dataset under data/
+        run: |
+          if [ ! -f data/imdb_top_500.csv ] && [ -f imdb_top_500.csv ]; then
+            cp imdb_top_500.csv data/imdb_top_500.csv
+          fi
+          test -f data/imdb_top_500.csv || test -f imdb_top_500.csv
+
+      - name: Train model
+        run: python train.py
+
+      - name: Upload to Hugging Face Hub
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO_ID: ${{ secrets.HF_REPO_ID }}
+        run: |
+          python <<'PY'
+          import os
+          import sys
+          from pathlib import Path
+
+          from huggingface_hub import HfApi
+
+          token = os.environ.get("HF_TOKEN")
+          repo_id = os.environ.get("HF_REPO_ID")
+          if not token:
+              print("Missing HF_TOKEN secret", file=sys.stderr)
+              sys.exit(1)
+          if not repo_id:
+              print(
+                  "Missing HF_REPO_ID secret (e.g. your-username/imdb-sentiment-nn)",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          model_dir = Path("model")
+          files = [
+              model_dir / "model.pt",
+              model_dir / "vectorizer.pkl",
+              model_dir / "config.json",
+              model_dir / "metrics.json",
+          ]
+          for f in files:
+              if not f.is_file():
+                  print(f"Missing artifact: {f}", file=sys.stderr)
+                  sys.exit(1)
+
+          api = HfApi()
+          api.create_repo(repo_id, token=token, exist_ok=True)
+
+          for f in files:
+              dest = f.as_posix()
+              api.upload_file(
+                  path_or_fileobj=str(f),
+                  path_in_repo=dest,
+                  repo_id=repo_id,
+                  token=token,
+              )
+              print(f"Uploaded {dest}")
+
+          print(f"Model uploaded to https://huggingface.co/{repo_id}")
+          PY
