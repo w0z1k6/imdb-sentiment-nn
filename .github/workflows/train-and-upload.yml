@@ -44,8 +44,8 @@ jobs:
 
           from huggingface_hub import HfApi
 
-          token = os.environ.get("HF_TOKEN")
-          repo_id = os.environ.get("HF_REPO_ID")
+          token = (os.environ.get("HF_TOKEN") or "").strip()
+          repo_id = (os.environ.get("HF_REPO_ID") or "").strip()
           if not token:
               print("Missing HF_TOKEN secret", file=sys.stderr)
               sys.exit(1)
